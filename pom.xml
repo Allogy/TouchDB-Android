@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.couchbase.touchdb</groupId>
+    <artifactId>TouchDB-Android-Parent</artifactId>
+    <version>0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <modules>
+        <module>TouchDB-Android</module>
+        <module>TouchDB-Android-Ektorp</module>
+    </modules>
+
+    <distributionManagement>
+        <repository>
+            <id>allogy-maven</id>
+            <name>Allogy private Maven release repository</name>
+            <url>s3://allogy.maven/release</url>
+        </repository>
+        <snapshotRepository>
+            <id>allogy-maven-snapshot</id>
+            <name>Allogy private Maven snapshot repository</name>
+            <url>s3://allogy.maven/snapshot</url>
+        </snapshotRepository>
+    </distributionManagement>
+
+    <pluginRepositories>
+        <pluginRepository>
+            <id>allogy-maven-public</id>
+            <name>Allogy public Maven release repository</name>
+            <url>https://s3.amazonaws.com/allogy.maven.public/release</url>
+        </pluginRepository>
+    </pluginRepositories>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>com.jayway.maven.plugins.android.generation2</groupId>
+                    <artifactId>android-maven-plugin</artifactId>
+                    <version>3.2.0</version>
+                    <extensions>true</extensions>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>com.jayway.maven.plugins.android.generation2</groupId>
+                <artifactId>android-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <configuration>
+                    <sdk>
+                        <platform>15</platform>
+                    </sdk>
+                    <proguard>
+                        <skip>true</skip>
+                    </proguard>
+                </configuration>
+            </plugin>
+        </plugins>
+        <extensions>
+            <extension>
+                <groupId>com.allogy.build</groupId>
+                <artifactId>maven-s3-wagon</artifactId>
+                <version>1.0</version>
+            </extension>
+        </extensions>
+    </build>
+
+</project>
