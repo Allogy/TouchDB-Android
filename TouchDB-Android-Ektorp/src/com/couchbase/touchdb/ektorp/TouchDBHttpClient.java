@@ -6,6 +6,7 @@ import java.io.OutputStream;
 import java.net.MalformedURLException;
 import java.net.ProtocolException;
 import java.net.URL;
+import java.util.Map;
 
 import org.apache.commons.io.IOUtils;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -74,6 +75,20 @@ public class TouchDBHttpClient implements HttpClient {
     }
 
     @Override
+    public HttpResponse get(String uri, Map<String, String> headers) {
+        TDURLConnection conn = connectionFromUri(uri);
+        try {
+            conn.setRequestMethod("GET");
+            for(Map.Entry<String, String> header : headers.entrySet()) {
+                conn.setRequestProperty(header.getKey(), header.getValue());
+            }
+            return executeRequest(conn);
+        } catch (ProtocolException e) {
+            throw Exceptions.propagate(e);
+        }
+    }
+
+    @Override
     public HttpResponse getUncached(String uri) {
         return get(uri);
     }
@@ -133,6 +148,11 @@ public class TouchDBHttpClient implements HttpClient {
     @Override
     public HttpResponse postUncached(String uri, String content) {
         return post(uri, content);
+    }
+
+    public HttpResponse copy(String s, String s1)
+    {
+        throw new UnsupportedOperationException("copy is not supported for TouchDB Ektorp");
     }
 
     @Override

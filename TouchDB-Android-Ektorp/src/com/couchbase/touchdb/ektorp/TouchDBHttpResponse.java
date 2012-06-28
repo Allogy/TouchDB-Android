@@ -62,8 +62,13 @@ public class TouchDBHttpResponse implements HttpResponse, TDRouterCallbackBlock 
         }
     }
 
+    public String getETag()
+    {
+        throw new UnsupportedOperationException("ETag is not currently available in Ektorp for TouchDB.");
+    }
+
     @Override
-    public int getContentLength() {
+    public long getContentLength() {
         getContent();
         return conn.getContentLength();
     }
