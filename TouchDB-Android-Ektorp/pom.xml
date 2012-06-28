@@ -9,7 +9,7 @@
     <name>TouchDB Ektorp for Android</name>
 
     <parent>
-        <groupId>com.couchbase.touchdb</groupId>
+        <groupId>com.couchbase.android</groupId>
         <artifactId>TouchDB-Android-Parent</artifactId>
         <version>0.1-SNAPSHOT</version>
     </parent>
@@ -22,7 +22,7 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>com.couchbase.touchdb</groupId>
+            <groupId>com.couchbase.android</groupId>
             <artifactId>TouchDB-Android</artifactId>
             <version>0.1-SNAPSHOT</version>
             <type>apklib</type>
