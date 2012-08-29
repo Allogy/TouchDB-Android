@@ -1,15 +1,13 @@
 package com.couchbase.touchdb.ektorp;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.MalformedURLException;
 import java.net.ProtocolException;
 import java.net.URL;
 import java.util.Map;
 
-import org.apache.commons.io.IOUtils;
-import org.codehaus.jackson.map.ObjectMapper;
 import org.ektorp.http.HttpClient;
 import org.ektorp.http.HttpResponse;
 import org.ektorp.util.Exceptions;
@@ -112,14 +110,11 @@ public class TouchDBHttpClient implements HttpClient {
 
             if(content != null) {
                 conn.setDoInput(true);
-                OutputStream os = conn.getOutputStream();
-                os.write(content.getBytes());
+                conn.setRequestInputStream(new ByteArrayInputStream(content.getBytes()));
             }
 
             return executeRequest(conn);
         } catch (ProtocolException e) {
-            throw Exceptions.propagate(e);
-        } catch (IOException e) {
             throw Exceptions.propagate(e);
         }
     }
@@ -132,15 +127,11 @@ public class TouchDBHttpClient implements HttpClient {
 
             if(contentStream != null) {
                 conn.setDoInput(true);
-                ObjectMapper mapper = new ObjectMapper();
-                OutputStream os = conn.getOutputStream();
-                IOUtils.copyLarge(contentStream, os);
+                conn.setRequestInputStream(contentStream);
             }
 
             return executeRequest(conn);
         } catch (ProtocolException e) {
-            throw Exceptions.propagate(e);
-        } catch (IOException e) {
             throw Exceptions.propagate(e);
         }
     }
@@ -175,14 +166,11 @@ public class TouchDBHttpClient implements HttpClient {
 
             if(content != null) {
                 conn.setDoInput(true);
-                OutputStream os = conn.getOutputStream();
-                os.write(content.getBytes());
+                conn.setRequestInputStream(new ByteArrayInputStream(content.getBytes()));
             }
 
             return executeRequest(conn);
         } catch (ProtocolException e) {
-            throw Exceptions.propagate(e);
-        } catch (IOException e) {
             throw Exceptions.propagate(e);
         }
     }
@@ -195,16 +183,12 @@ public class TouchDBHttpClient implements HttpClient {
 
             if(contentStream != null) {
                 conn.setDoInput(true);
-                conn.setRequestProperty("Content-Type", contentType);
-                ObjectMapper mapper = new ObjectMapper();
-                OutputStream os = conn.getOutputStream();
-                IOUtils.copyLarge(contentStream, os);
+                conn.setRequestProperty("content-type", contentType);
+                conn.setRequestInputStream(contentStream);
             }
 
             return executeRequest(conn);
         } catch (ProtocolException e) {
-            throw Exceptions.propagate(e);
-        } catch (IOException e) {
             throw Exceptions.propagate(e);
         }
     }

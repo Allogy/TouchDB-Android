@@ -32,9 +32,6 @@ import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.http.protocol.ExecutionContext;
 import org.apache.http.protocol.HttpContext;
 
-import android.os.Handler;
-import android.os.HandlerThread;
-import android.os.Looper;
 import android.util.Log;
 
 import com.couchbase.touchdb.TDDatabase;
@@ -51,8 +48,6 @@ public class TDChangeTracker implements Runnable {
     private TDChangeTrackerMode mode;
     private Object lastSequenceID;
 
-    private HandlerThread handlerThread;
-    private Handler handler;
     private Thread thread;
     private boolean running = false;
     private HttpUriRequest request;
@@ -68,14 +63,6 @@ public class TDChangeTracker implements Runnable {
 
     public TDChangeTracker(URL databaseURL, TDChangeTrackerMode mode,
             Object lastSequenceID, TDChangeTrackerClient client) {
-        //first start a handler thread
-        String threadName = Thread.currentThread().getName();
-        handlerThread = new HandlerThread("ChangeTracker HandlerThread for " + threadName);
-        handlerThread.start();
-        //Get the looper from the handlerThread
-        Looper looper = handlerThread.getLooper();
-        //Create a new handler - passing in the looper for it to use
-        this.handler = new Handler(looper);
         this.databaseURL = databaseURL;
         this.mode = mode;
         this.lastSequenceID = lastSequenceID;
@@ -115,7 +102,7 @@ public class TDChangeTracker implements Runnable {
             path += "normal";
             break;
         case LongPoll:
-            path += "longpoll";
+            path += "longpoll&limit=50";
             break;
         case Continuous:
             path += "continuous";
@@ -158,6 +145,7 @@ public class TDChangeTracker implements Runnable {
         running = true;
         HttpClient httpClient = client.getHttpClient();
         while (running) {
+
             URL url = getChangesFeedURL();
             request = new HttpGet(url.toString());
 
@@ -241,7 +229,7 @@ public class TDChangeTracker implements Runnable {
                 }
             }
         }
-        Log.v(TDDatabase.TAG, "Chagne tracker run loop exiting");
+        Log.v(TDDatabase.TAG, "Change tracker run loop exiting");
     }
 
     public boolean receivedChunk(String line) {
@@ -266,20 +254,9 @@ public class TDChangeTracker implements Runnable {
             return false;
         }
         //pass the change to the client on the thread that created this change tracker
-        handler.post(new Runnable() {
-
-            TDChangeTrackerClient copy = client;
-
-            @Override
-            public void run() {
-                if(copy == null) {
-                    Log.v(TDDatabase.TAG, "cannot notify client, client is null");
-                } else {
-                    Log.v(TDDatabase.TAG, "about to notify client");
-                    copy.changeTrackerReceivedChange(change);
-                }
-            }
-        });
+        if(client != null) {
+            client.changeTrackerReceivedChange(change);
+        }
         lastSequenceID = seq;
         return true;
     }
@@ -304,12 +281,13 @@ public class TDChangeTracker implements Runnable {
 
     public boolean start() {
         this.error = null;
-        thread = new Thread(this);
+        thread = new Thread(this, "ChangeTracker-" + databaseURL.toExternalForm());
         thread.start();
         return true;
     }
 
     public void stop() {
+        Log.d(TDDatabase.TAG, "changed tracker asked to stop");
         running = false;
         thread.interrupt();
         if(request != null) {
@@ -320,30 +298,13 @@ public class TDChangeTracker implements Runnable {
     }
 
     public void stopped() {
-        Log.d(TDDatabase.TAG, "in stopped");
-        if (client != null  && handler != null) {
+        Log.d(TDDatabase.TAG, "change tracker in stopped");
+        if (client != null) {
             Log.d(TDDatabase.TAG, "posting stopped");
-            handler.post(new Runnable() {
-
-                TDChangeTrackerClient copy = client;
-
-                @Override
-                public void run() {
-                    copy.changeTrackerStopped(TDChangeTracker.this);
-
-                    //Shut down the HandlerThread
-                    handlerThread.quit();
-                    handlerThread = null;
-                    handler = null;
-                }
-            });
-        } else if(handler != null) {
-            //Shut down the HandlerThread
-            handlerThread.quit();
-            handlerThread = null;
-            handler = null;
+            client.changeTrackerStopped(TDChangeTracker.this);
         }
         client = null;
+        Log.d(TDDatabase.TAG, "change tracker client should be null now");
     }
 
     public boolean isRunning() {

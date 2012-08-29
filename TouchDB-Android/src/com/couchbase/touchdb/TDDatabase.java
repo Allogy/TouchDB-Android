@@ -17,14 +17,15 @@
 
 package com.couchbase.touchdb;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Observable;
@@ -35,6 +36,9 @@ import android.database.Cursor;
 import android.database.SQLException;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteException;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.Looper;
 import android.util.Log;
 
 import com.couchbase.touchdb.TDDatabase.TDContentOptions;
@@ -62,6 +66,9 @@ public class TDDatabase extends Observable {
     private Map<String, TDValidationBlock> validations;
     private List<TDReplicator> activeReplicators;
     private TDBlobStore attachments;
+
+    private HandlerThread handlerThread;
+    private Handler handler;
 
     /**
      * Options for what metadata to include in document bodies
@@ -166,6 +173,13 @@ public class TDDatabase extends Observable {
         assert(path.startsWith("/")); //path must be absolute
         this.path = path;
         this.name = FileDirUtils.getDatabaseNameFromPath(path);
+
+        //start a handler thead to do work for this database
+        handlerThread = new HandlerThread("HandlerThread for " + toString());
+        handlerThread.start();
+        //Get the looper from the handlerThread
+        Looper looper = handlerThread.getLooper();
+        handler = new Handler(looper);
     }
 
     public String toString() {
@@ -192,6 +206,7 @@ public class TDDatabase extends Observable {
         FileDirUtils.copyFile(sourceFile, destFile);
         File attachmentsFile = new File(dstAttachmentsPath);
         FileDirUtils.deleteRecursive(attachmentsFile);
+        attachmentsFile.mkdirs();
         if(attachmentsPath != null) {
             FileDirUtils.copyFolder(new File(attachmentsPath), attachmentsFile);
         }
@@ -314,12 +329,16 @@ public class TDDatabase extends Observable {
         views = null;
 
         if(activeReplicators != null) {
-            Iterator<TDReplicator> iter = activeReplicators.iterator();
-            while(iter.hasNext()) {
-                TDReplicator replicator = iter.next();
-                replicator.stop();
-                iter.remove();
+            for(TDReplicator replicator : activeReplicators) {
+                replicator.databaseClosing();
             }
+            activeReplicators = null;
+        }
+
+        if(handlerThread != null) {
+            handler = null;
+            handlerThread.quit();
+            handlerThread = null;
         }
 
         if(database != null && database.isOpen()) {
@@ -384,7 +403,7 @@ public class TDDatabase extends Observable {
         try {
             database.beginTransaction();
             ++transactionLevel;
-            Log.v(TAG, "Begin transaction (level " + Integer.toString(transactionLevel) + ")...");
+            //Log.v(TAG, "Begin transaction (level " + Integer.toString(transactionLevel) + ")...");
         } catch (SQLException e) {
             return false;
         }
@@ -400,7 +419,7 @@ public class TDDatabase extends Observable {
         assert(transactionLevel > 0);
 
         if(commit) {
-            Log.v(TAG, "Committing transaction (level " + Integer.toString(transactionLevel) + ")...");
+            //Log.v(TAG, "Committing transaction (level " + Integer.toString(transactionLevel) + ")...");
             database.setTransactionSuccessful();
             database.endTransaction();
         }
@@ -1333,13 +1352,12 @@ public class TDDatabase extends Observable {
     /*** TDDatabase+Attachments                                                                    ***/
     /*************************************************************************************************/
 
-    public TDStatus insertAttachmentForSequenceWithNameAndType(byte[] contents, long sequence, String name, String contentType, int revpos) {
-        assert(contents != null);
+    public TDStatus insertAttachmentForSequenceWithNameAndType(InputStream contentStream, long sequence, String name, String contentType, int revpos) {
         assert(sequence > 0);
         assert(name != null);
 
         TDBlobKey key = new TDBlobKey();
-        if(!attachments.storeBlob(contents, key)) {
+        if(!attachments.storeBlobStream(contentStream, key)) {
             return new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
         }
 
@@ -1350,7 +1368,7 @@ public class TDDatabase extends Observable {
             args.put("filename", name);
             args.put("key", keyData);
             args.put("type", contentType);
-            args.put("length", contents.length);
+            args.put("length", attachments.getSizeOfBlob(key));
             args.put("revpos", revpos);
             database.insert("attachments", null, args);
             return new TDStatus(TDStatus.CREATED);
@@ -1418,8 +1436,8 @@ public class TDDatabase extends Observable {
             byte[] keyData = cursor.getBlob(0);
             //TODO add checks on key here? (ios version)
             TDBlobKey key = new TDBlobKey(keyData);
-            byte[] contents = attachments.blobForKey(key);
-            if(contents == null) {
+            InputStream contentStream = attachments.blobStreamForKey(key);
+            if(contentStream == null) {
                 Log.e(TDDatabase.TAG, "Failed to load attachment");
                 status.setCode(TDStatus.INTERNAL_SERVER_ERROR);
                 return null;
@@ -1427,7 +1445,7 @@ public class TDDatabase extends Observable {
             else {
                 status.setCode(TDStatus.OK);
                 TDAttachment result = new TDAttachment();
-                result.setData(contents);
+                result.setContentStream(contentStream);
                 result.setContentType(cursor.getString(1));
                 return result;
             }
@@ -1600,7 +1618,7 @@ public class TDDatabase extends Observable {
                 }
 
                 // Finally insert the attachment:
-                status = insertAttachmentForSequenceWithNameAndType(newContents, newSequence, name, (String)newAttach.get("content_type"), revpos);
+                status = insertAttachmentForSequenceWithNameAndType(new ByteArrayInputStream(newContents), newSequence, name, (String)newAttach.get("content_type"), revpos);
             }
             else {
                 // It's just a stub, so copy the previous revision's attachment entry:
@@ -1619,9 +1637,9 @@ public class TDDatabase extends Observable {
      * Updates or deletes an attachment, creating a new document revision in the process.
      * Used by the PUT / DELETE methods called on attachment URLs.
      */
-    public TDRevision updateAttachment(String filename, byte[] body, String contentType, String docID, String oldRevID, TDStatus status) {
+    public TDRevision updateAttachment(String filename, InputStream contentStream, String contentType, String docID, String oldRevID, TDStatus status) {
         status.setCode(TDStatus.BAD_REQUEST);
-        if(filename == null || filename.length() == 0 || (body != null && contentType == null) || (oldRevID != null && docID == null) || (body != null && docID == null)) {
+        if(filename == null || filename.length() == 0 || (contentStream != null && contentType == null) || (oldRevID != null && docID == null) || (contentStream != null && docID == null)) {
             return null;
         }
 
@@ -1640,7 +1658,7 @@ public class TDDatabase extends Observable {
                 }
 
                 Map<String,Object> attachments = (Map<String, Object>) oldRev.getProperties().get("_attachments");
-                if(body == null && attachments != null && !attachments.containsKey(filename)) {
+                if(contentStream == null && attachments != null && !attachments.containsKey(filename)) {
                     status.setCode(TDStatus.NOT_FOUND);
                     return null;
                 }
@@ -1671,9 +1689,9 @@ public class TDDatabase extends Observable {
                         + "WHERE sequence=? AND filename != ?", args);
             }
 
-            if(body != null) {
+            if(contentStream != null) {
                 // If not deleting, add a new attachment entry:
-                TDStatus insertStatus = insertAttachmentForSequenceWithNameAndType(body, newRev.getSequence(),
+                TDStatus insertStatus = insertAttachmentForSequenceWithNameAndType(contentStream, newRev.getSequence(),
                         filename, contentType, newRev.getGeneration());
                 status.setCode(insertStatus.getCode());
 
@@ -1682,7 +1700,7 @@ public class TDDatabase extends Observable {
                 }
             }
 
-            status.setCode((body != null) ? TDStatus.CREATED : TDStatus.OK);
+            status.setCode((contentStream != null) ? TDStatus.CREATED : TDStatus.OK);
             return newRev;
 
         } catch(SQLException e) {
@@ -2257,13 +2275,6 @@ public class TDDatabase extends Observable {
         return result;
     }
 
-    public void replicatorDidStop(TDReplicator replicator) {
-        replicator.databaseClosing();  // get it to detach from me
-        if(activeReplicators != null) {
-            activeReplicators.remove(replicator);
-        }
-    }
-
     public String lastSequenceWithRemoteURL(URL url, boolean push) {
         Cursor cursor = null;
         String result = null;
@@ -2471,6 +2482,10 @@ public class TDDatabase extends Observable {
         } catch (SQLException e) {
             return new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
         }
+    }
+
+    public Handler getHandler() {
+        return handler;
     }
 }
 

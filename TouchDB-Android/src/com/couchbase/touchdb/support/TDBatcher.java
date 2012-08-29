@@ -4,8 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import android.os.Handler;
-import android.os.HandlerThread;
-import android.os.Looper;
 import android.util.Log;
 
 import com.couchbase.touchdb.TDDatabase;
@@ -16,7 +14,6 @@ import com.couchbase.touchdb.TDDatabase;
  */
 public class TDBatcher<T> {
 
-    private HandlerThread handlerThread;
     private Handler handler;
     private int capacity;
     private int delay;
@@ -36,15 +33,8 @@ public class TDBatcher<T> {
         }
     };
 
-    public TDBatcher(int capacity, int delay, TDBatchProcessor<T> processor) {
-        //first start a handler thread
-        String threadName = Thread.currentThread().getName();
-        handlerThread = new HandlerThread("TDBatcher HandlerThread for " + threadName);
-        handlerThread.start();
-        //Get the looper from the handlerThread
-        Looper looper = handlerThread.getLooper();
-        //Create a new handler - passing in the looper for it to use
-        this.handler = new Handler(looper);
+    public TDBatcher(Handler handler, int capacity, int delay, TDBatchProcessor<T> processor) {
+        this.handler = handler;
         this.capacity = capacity;
         this.delay = delay;
         this.processor = processor;
@@ -72,7 +62,7 @@ public class TDBatcher<T> {
             if(inbox == null) {
                 inbox = new ArrayList<T>();
                 if(handler != null) {
-                    handler.postDelayed(processNowRunnable, 2 * 1000);
+                    handler.postDelayed(processNowRunnable, delay);
                 }
             }
             inbox.add(object);
@@ -98,10 +88,7 @@ public class TDBatcher<T> {
     }
 
     public void close() {
-        //Shut down the HandlerThread
-        handlerThread.quit();
-        handlerThread = null;
-        handler = null;
+
     }
 
 }

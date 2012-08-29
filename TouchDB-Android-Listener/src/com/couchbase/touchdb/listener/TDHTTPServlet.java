@@ -2,7 +2,6 @@ package com.couchbase.touchdb.listener;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.URL;
 import java.util.Enumeration;
 import java.util.List;
@@ -70,15 +69,7 @@ public class TDHTTPServlet extends HttpServlet {
         //but its blocking on get requests otherwise
         if(is != null && is.available() > 0) {
             conn.setDoInput(true);
-            OutputStream os = conn.getOutputStream();
-            byte[] buffer = new byte[1024];
-            int lenRead = is.read(buffer, 0, 1024);
-            while(lenRead > 0) {
-                os.write(buffer, 0, lenRead);
-                lenRead = is.read(buffer, 0, 1024);
-            }
-            is.close();
-            os.close();
+            conn.setRequestInputStream(is);
         }
 
         final ServletOutputStream os = response.getOutputStream();
@@ -105,47 +96,29 @@ public class TDHTTPServlet extends HttpServlet {
                         }
                     }
                 }
+
+                doneSignal.countDown();
             }
 
-            @Override
-            public void onFinish() {
-                try {
-                    os.close();
-                } catch (IOException e) {
-                    //ignore
-                } finally {
-                    //signal the end no matter what happens at the end of this method
-                    doneSignal.countDown();
-                }
-            }
-
-            @Override
-            public synchronized void onDataAvailable(byte[] data) {
-                if(data != null) {
-                    try {
-                        Log.v(TAG, String.format("Asked to write: %s", new String(data)));
-                        os.write(data);
-                        os.flush();
-                        response.flushBuffer();
-                    } catch (IOException e) {
-                        //dont bother logging this, it usually just means that a continuous changes listener hung up
-                    }
-                }
-            }
         };
 
         router.setCallbackBlock(callbackBlock);
 
-        listener.onServerThread(new Runnable() {
-
-            @Override
-            public void run() {
-                router.start();
-            }
-        });
+        synchronized (server) {
+            router.start();
+        }
 
         try {
             doneSignal.await();
+            InputStream responseInputStream = conn.getResponseInputStream();
+            final byte[] buffer = new byte[65536];
+            int r;
+            while ((r = responseInputStream.read(buffer)) > 0) {
+                os.write(buffer, 0, r);
+                os.flush();
+                response.flushBuffer();
+            }
+            os.close();
         } catch (InterruptedException e) {
             Log.e(TDDatabase.TAG, "Interrupted waiting for result", e);
         } finally {

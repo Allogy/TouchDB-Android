@@ -25,6 +25,7 @@ import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.client.protocol.ClientContext;
+import org.apache.http.conn.ClientConnectionManager;
 import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.impl.auth.BasicScheme;
 import org.apache.http.impl.client.DefaultHttpClient;
@@ -32,8 +33,6 @@ import org.apache.http.protocol.ExecutionContext;
 import org.apache.http.protocol.HttpContext;
 
 import android.os.Handler;
-import android.os.HandlerThread;
-import android.os.Looper;
 import android.util.Log;
 
 import com.couchbase.touchdb.TDDatabase;
@@ -41,7 +40,6 @@ import com.couchbase.touchdb.TDServer;
 
 public class TDRemoteRequest implements Runnable {
 
-    private HandlerThread handlerThread;
     private Handler handler;
     private Thread thread;
     private final HttpClientFactory clientFactory;
@@ -50,30 +48,25 @@ public class TDRemoteRequest implements Runnable {
     private Object body;
     private TDRemoteRequestCompletionBlock onCompletion;
 
-    public TDRemoteRequest(HttpClientFactory clientFactory, String method, URL url, Object body, TDRemoteRequestCompletionBlock onCompletion) {
+    public TDRemoteRequest(Handler handler, HttpClientFactory clientFactory, String method, URL url, Object body, TDRemoteRequestCompletionBlock onCompletion) {
         this.clientFactory = clientFactory;
         this.method = method;
         this.url = url;
         this.body = body;
         this.onCompletion = onCompletion;
+        this.handler = handler;
     }
 
     public void start() {
-        //first start a handler thread
-        handlerThread = new HandlerThread("RemoteRequestHandlerThread");
-        handlerThread.start();
-        //Get the looper from the handlerThread
-        Looper looper = handlerThread.getLooper();
-        //Create a new handler - passing in the looper for it to use
-        handler = new Handler(looper);
-        thread = new Thread(this);
+        thread = new Thread(this, "RemoteRequest-" + url.toExternalForm());
         thread.start();
     }
 
     @Override
     public void run() {
-        Log.v(TDDatabase.TAG, String.format("%s: %s .%s", toString(), method, url.toExternalForm()));
         HttpClient httpClient = clientFactory.getHttpClient();
+        ClientConnectionManager manager = httpClient.getConnectionManager();
+
         HttpUriRequest request = null;
         if(method.equalsIgnoreCase("GET")) {
             request = new HttpGet(url.toExternalForm());
@@ -164,25 +157,22 @@ public class TDRemoteRequest implements Runnable {
     }
 
     public void respondWithResult(final Object result, final Throwable error) {
-        handler.post(new Runnable() {
+        if(handler != null) {
+            handler.post(new Runnable() {
 
-            TDRemoteRequestCompletionBlock copy = onCompletion;
+                TDRemoteRequestCompletionBlock copy = onCompletion;
 
-            @Override
-            public void run() {
-                try {
-                    onCompletion.onCompletion(result, error);
-                } catch(Exception e) {
-                    // don't let this crash the thread
-                    Log.e(TDDatabase.TAG, "TDRemoteRequestCompletionBlock throw Exception", e);
+                @Override
+                public void run() {
+                    try {
+                        onCompletion.onCompletion(result, error);
+                    } catch(Exception e) {
+                        // don't let this crash the thread
+                        Log.e(TDDatabase.TAG, "TDRemoteRequestCompletionBlock throw Exception", e);
+                    }
                 }
-
-                //Shut down the HandlerThread
-                handlerThread.quit();
-                handlerThread = null;
-                handler = null;
-            }
-        });
+            });
+        }
     }
 
 }
