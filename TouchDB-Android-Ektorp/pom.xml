@@ -3,14 +3,14 @@
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>TouchDB-Android-Ektorp</artifactId>
-    <version>0.1.1-SNAPSHOT</version>
+    <version>0.1.1</version>
     <packaging>apklib</packaging>
     <name>TouchDB Ektorp for Android</name>
 
     <parent>
         <groupId>com.allogy.couchbase.android</groupId>
         <artifactId>TouchDB-Android-Parent</artifactId>
-        <version>0.1.1-SNAPSHOT</version>
+        <version>0.1.1</version>
     </parent>
 
     <dependencies>
@@ -23,7 +23,7 @@
         <dependency>
             <groupId>com.allogy.couchbase.android</groupId>
             <artifactId>TouchDB-Android</artifactId>
-            <version>0.1.1-SNAPSHOT</version>
+            <version>0.1.1</version>
             <type>apklib</type>
         </dependency>
         <dependency>
