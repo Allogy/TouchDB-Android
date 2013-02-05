@@ -276,13 +276,14 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
                 // are still revisions waiting to be pulled:
                 asyncTaskFinished(1);
                 --httpConnectionCount;
-                db.getHandler().post(new Runnable()
+                /*db.getHandler().post(new Runnable()
                 {
                     public void run()
                     {
                         pullRemoteRevisions();
                     }
-                });
+                });*/
+                pullRemoteRevisions();
             }
         });
 
