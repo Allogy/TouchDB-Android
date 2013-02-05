@@ -257,6 +257,9 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
                         toInsert.add(rev);
                         toInsert.add(history);
                         downloadsToInsert.queueObject(toInsert);
+                        if(properties.containsKey("_attachments"))
+                            downloadsToInsert.processNow();
+
                         asyncTaskStarted();
                     } else {
                         Log.w(TDDatabase.TAG, this + ": Missing revision history in response from " + pathInside);
@@ -273,7 +276,13 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
                 // are still revisions waiting to be pulled:
                 asyncTaskFinished(1);
                 --httpConnectionCount;
-                pullRemoteRevisions();
+                db.getHandler().post(new Runnable()
+                {
+                    public void run()
+                    {
+                        pullRemoteRevisions();
+                    }
+                });
             }
         });
 
