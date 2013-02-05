@@ -257,8 +257,8 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
                         toInsert.add(rev);
                         toInsert.add(history);
                         downloadsToInsert.queueObject(toInsert);
-                        if(properties.containsKey("_attachments"))
-                            downloadsToInsert.processNow();
+                        //if(properties.containsKey("_attachments"))
+                        //    downloadsToInsert.processNow();
 
                         asyncTaskStarted();
                     } else {
