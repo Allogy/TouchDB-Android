@@ -1,33 +1,21 @@
 package com.couchbase.touchdb.replicator;
 
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLEncoder;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
+import com.couchbase.touchdb.*;
+import com.couchbase.touchdb.support.*;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.HttpResponseException;
 
 import android.database.SQLException;
 import android.util.Log;
 
-import com.couchbase.touchdb.TDBody;
-import com.couchbase.touchdb.TDDatabase;
-import com.couchbase.touchdb.TDMisc;
-import com.couchbase.touchdb.TDRevision;
-import com.couchbase.touchdb.TDRevisionList;
-import com.couchbase.touchdb.TDServer;
-import com.couchbase.touchdb.TDStatus;
 import com.couchbase.touchdb.replicator.changetracker.TDChangeTracker;
 import com.couchbase.touchdb.replicator.changetracker.TDChangeTracker.TDChangeTrackerMode;
 import com.couchbase.touchdb.replicator.changetracker.TDChangeTrackerClient;
-import com.couchbase.touchdb.support.HttpClientFactory;
-import com.couchbase.touchdb.support.TDBatchProcessor;
-import com.couchbase.touchdb.support.TDBatcher;
-import com.couchbase.touchdb.support.TDRemoteRequestCompletionBlock;
 
 public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 
@@ -215,6 +203,19 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
         }
     }
 
+    public void sendAsyncMultipartRequest(String method, String relativePath, TDRemoteRequestCompletionBlock onCompletion) {
+        //Log.v(TDDatabase.TAG, String.format("%s: %s .%s", toString(), method, relativePath));
+        String urlStr = remote.toExternalForm() + relativePath;
+        try {
+            URL url = new URL(urlStr);
+            TDRemoteRequest request = new TDMultipartRemoteRequest(db.getHandler(), clientFacotry, db.getAttachments(), url, null, onCompletion, method);
+            request.start();
+        } catch (MalformedURLException e) {
+            Log.e(TDDatabase.TAG, "Malformed URL for async request", e);
+        }
+    }
+
+
     /**
      * Fetches the contents of a revision from the remote db, including its parent revision ID.
      * The contents are stored into rev.properties.
@@ -242,28 +243,37 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
         //create a final version of this variable for the log statement inside
         //FIXME find a way to avoid this
         final String pathInside = path.toString();
-        sendAsyncRequest("GET", pathInside, null, new TDRemoteRequestCompletionBlock() {
+        sendAsyncMultipartRequest("GET", pathInside, new TDRemoteRequestCompletionBlock()
+        {
 
             @Override
-            public void onCompletion(Object result, Throwable e) {
+            public void onCompletion(Object result, Throwable e)
+            {
                 // OK, now we've got the response revision:
-                if(result != null) {
-                    Map<String,Object> properties = (Map<String,Object>)result;
+                if (result != null)
+                {
+                    MultipartResponse multipartResponse = (MultipartResponse) result;
+                    Map<String, Object> properties = multipartResponse.getDocument();
                     List<String> history = db.parseCouchDBRevisionHistory(properties);
-                    if(history != null) {
+                    if (history != null)
+                    {
                         rev.setProperties(properties);
                         // Add to batcher ... eventually it will be fed to -insertRevisions:.
                         List<Object> toInsert = new ArrayList<Object>();
                         toInsert.add(rev);
                         toInsert.add(history);
+                        toInsert.add(multipartResponse.getAttachmentToBlobKey());
                         downloadsToInsert.queueObject(toInsert);
                         asyncTaskStarted();
-                    } else {
+                    } else
+                    {
                         Log.w(TDDatabase.TAG, this + ": Missing revision history in response from " + pathInside);
                         setChangesProcessed(getChangesProcessed() + 1);
                     }
-                } else {
-                    if(e != null) {
+                } else
+                {
+                    if (e != null)
+                    {
                         error = e;
                     }
                     setChangesProcessed(getChangesProcessed() + 1);
@@ -310,8 +320,9 @@ public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
             for (List<Object> revAndHistory : revs) {
                 TDPulledRevision rev = (TDPulledRevision)revAndHistory.get(0);
                 List<String> history = (List<String>)revAndHistory.get(1);
-                // Insert the revision:
-                TDStatus status = db.forceInsert(rev, history, remote);
+                Map<String, TDBlobKey> attachmentNameToBlobKeyMap = (Map<String, TDBlobKey>) revAndHistory.get(2);
+                TDStatus status;
+                status = db.forceInsert(rev, history, remote, attachmentNameToBlobKeyMap);
                 if(!status.isSuccessful()) {
                     if(status.getCode() == TDStatus.FORBIDDEN) {
                         Log.i(TDDatabase.TAG, this + ": Remote rev failed validation: " + rev);

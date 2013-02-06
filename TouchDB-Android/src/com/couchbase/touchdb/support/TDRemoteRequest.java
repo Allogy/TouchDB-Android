@@ -3,14 +3,10 @@ package com.couchbase.touchdb.support;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.util.Arrays;
+import java.util.List;
 
-import org.apache.http.HttpEntity;
-import org.apache.http.HttpException;
-import org.apache.http.HttpHost;
-import org.apache.http.HttpRequest;
-import org.apache.http.HttpRequestInterceptor;
-import org.apache.http.HttpResponse;
-import org.apache.http.StatusLine;
+import org.apache.http.*;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.AuthState;
 import org.apache.http.auth.Credentials;
@@ -112,7 +108,7 @@ public class TDRemoteRequest implements Runnable {
             }
         }
 
-        request.addHeader("Accept", "application/json");
+        request.addHeader("Accept", getAcceptHeader());
 
         //set body if appropriate
         if(body != null && request instanceof HttpEntityEnclosingRequestBase) {
@@ -142,7 +138,7 @@ public class TDRemoteRequest implements Runnable {
                 if(temp != null) {
                 	try {
 	                    InputStream stream = temp.getContent();
-	                    fullBody = TDServer.getObjectMapper().readValue(stream, Object.class);
+	                    fullBody = getFullBodyObject(stream, Arrays.asList(response.getAllHeaders()));
                 	} finally {
                 		try { temp.consumeContent(); } catch (IOException e) {}
                 	}
@@ -154,6 +150,16 @@ public class TDRemoteRequest implements Runnable {
             error = e;
         }
         respondWithResult(fullBody, error);
+    }
+
+    protected Object getFullBodyObject(InputStream stream, List<Header> allHeaders) throws IOException
+    {
+        return TDServer.getObjectMapper().readValue(stream, Object.class);
+    }
+
+    protected String getAcceptHeader()
+    {
+        return "application/json";
     }
 
     public void respondWithResult(final Object result, final Throwable error) {

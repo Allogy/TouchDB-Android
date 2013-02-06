@@ -17,20 +17,6 @@
 
 package com.couchbase.touchdb;
 
-import java.io.ByteArrayInputStream;
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Observable;
-import java.util.Set;
-
 import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.SQLException;
@@ -40,7 +26,6 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.util.Log;
-
 import com.couchbase.touchdb.TDDatabase.TDContentOptions;
 import com.couchbase.touchdb.replicator.TDPuller;
 import com.couchbase.touchdb.replicator.TDPusher;
@@ -48,6 +33,13 @@ import com.couchbase.touchdb.replicator.TDReplicator;
 import com.couchbase.touchdb.support.Base64;
 import com.couchbase.touchdb.support.FileDirUtils;
 import com.couchbase.touchdb.support.HttpClientFactory;
+
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.util.*;
 
 /**
  * A TouchDB database.
@@ -1361,10 +1353,42 @@ public class TDDatabase extends Observable {
             return new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
         }
 
-        byte[] keyData = key.getBytes();
+        return associateAttachmentWithSequenceAndNameAndType(key, sequence, name, contentType, revpos);
+    }
+
+    private TDStatus associateAttachmentWithSequenceAndNameAndType(TDBlobKey blobKey, long sequence, String name, String contentType, int revpos) {
+        assert(sequence > 0);
+        assert(name != null);
+
+        byte[] keyData = blobKey.getBytes();
         try {
             ContentValues args = new ContentValues();
             args.put("sequence", sequence);
+            args.put("filename", name);
+            args.put("key", keyData);
+            args.put("type", contentType);
+            args.put("length", attachments.getSizeOfBlob(blobKey));
+            args.put("revpos", revpos);
+            database.insert("attachments", null, args);
+            return new TDStatus(TDStatus.CREATED);
+        } catch (SQLException e) {
+            Log.e(TDDatabase.TAG, "Error associating attachment", e);
+            return new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /*public TDStatus insertAttachmentWithNameAndType(InputStream contentStream, String name, String contentType, int revpos) {
+        assert(name != null);
+
+        TDBlobKey key = new TDBlobKey();
+        if(!attachments.storeBlobStream(contentStream, key)) {
+            return new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
+        }
+
+        byte[] keyData = key.getBytes();
+        try {
+            ContentValues args = new ContentValues();
+            //args.put("sequence", sequence);
             args.put("filename", name);
             args.put("key", keyData);
             args.put("type", contentType);
@@ -1376,7 +1400,7 @@ public class TDDatabase extends Observable {
             Log.e(TDDatabase.TAG, "Error inserting attachment", e);
             return new TDStatus(TDStatus.INTERNAL_SERVER_ERROR);
         }
-    }
+    }*/
 
     public TDStatus copyAttachmentNamedFromSequenceToSequence(String name, long fromSeq, long toSeq) {
         assert(name != null);
@@ -1625,6 +1649,48 @@ public class TDDatabase extends Observable {
                 //? Should I enforce that the type and digest (if any) match?
                 status = copyAttachmentNamedFromSequenceToSequence(name, parentSequence, newSequence);
             }
+            if(!status.isSuccessful()) {
+                return status;
+            }
+        }
+
+        return new TDStatus(TDStatus.OK);
+    }
+
+    private TDStatus processAttachmentsForRevision(TDRevision rev, long parentSequence, Map<String, TDBlobKey> attachmentNamesToBlobKey)
+    {
+        assert(rev != null);
+        long newSequence = rev.getSequence();
+        assert(newSequence > parentSequence);
+
+        // If there are no attachments in the new rev, there's nothing to do:
+        Map<String,Object> newAttachments = null;
+        Map<String,Object> properties = (Map<String,Object>)rev.getProperties();
+        if(properties != null) {
+            newAttachments = (Map<String,Object>)properties.get("_attachments");
+        }
+        if(newAttachments == null || newAttachments.size() == 0 || rev.isDeleted()) {
+            return new TDStatus(TDStatus.OK);
+        }
+
+        for (String name : newAttachments.keySet()) {
+
+            TDStatus status = new TDStatus();
+            TDBlobKey blobKey = attachmentNamesToBlobKey.get(name);
+            Map<String,Object> newAttach = (Map<String,Object>)newAttachments.get(name);
+            int generation = rev.getGeneration();
+            assert(generation > 0);
+            Object revposObj = newAttach.get("revpos");
+            int revpos = generation;
+            if(revposObj != null && revposObj instanceof Integer) {
+                revpos = ((Integer)revposObj).intValue();
+            }
+
+            if(revpos > generation) {
+                return new TDStatus(TDStatus.BAD_REQUEST);
+            }
+
+            status = associateAttachmentWithSequenceAndNameAndType(blobKey, newSequence, name, (String)newAttach.get("content_type"), revpos);
             if(!status.isSuccessful()) {
                 return status;
             }
@@ -2095,6 +2161,10 @@ public class TDDatabase extends Observable {
      * It must already have a revision ID. This may create a conflict! The revision's history must be given; ancestor revision IDs that don't already exist locally will create phantom revisions with no content.
      */
     public TDStatus forceInsert(TDRevision rev, List<String> revHistory, URL source) {
+        return forceInsert(rev, revHistory, source, null);
+    }
+
+    public TDStatus forceInsert(TDRevision rev, List<String> revHistory, URL source, Map<String, TDBlobKey> attachmentNamesToBlobKey) {
 
         String docId = rev.getDocId();
         String revId = rev.getRevId();
@@ -2165,7 +2235,9 @@ public class TDDatabase extends Observable {
 
                     if(i == 0) {
                         // Write any changed attachments for the new revision:
-                        TDStatus status = processAttachmentsForRevision(rev, localParentSequence);
+                        TDStatus status = attachmentNamesToBlobKey != null ?
+                                processAttachmentsForRevision(rev, localParentSequence, attachmentNamesToBlobKey) :
+                                processAttachmentsForRevision(rev, localParentSequence);
                         if(!status.isSuccessful()) {
                             return status;
                         }
@@ -2197,6 +2269,7 @@ public class TDDatabase extends Observable {
         notifyChange(rev, source);
         return new TDStatus(TDStatus.CREATED);
     }
+
 
     /** VALIDATION **/
 
