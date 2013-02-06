@@ -3,6 +3,7 @@ package com.couchbase.touchdb.support;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.util.concurrent.Semaphore;
 
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpException;
@@ -46,6 +47,7 @@ public class TDRemoteRequest implements Runnable {
     private String method;
     private URL url;
     private Object body;
+    private Semaphore semaphore;
     private TDRemoteRequestCompletionBlock onCompletion;
 
     public TDRemoteRequest(Handler handler, HttpClientFactory clientFactory, String method, URL url, Object body, TDRemoteRequestCompletionBlock onCompletion) {
@@ -55,6 +57,11 @@ public class TDRemoteRequest implements Runnable {
         this.body = body;
         this.onCompletion = onCompletion;
         this.handler = handler;
+    }
+
+    public TDRemoteRequest(Handler handler, HttpClientFactory clientFactory, String method, URL url, Object body, Semaphore semaphore, TDRemoteRequestCompletionBlock onCompletion) {
+        this(handler, clientFactory, method, url, body, onCompletion);
+        this.semaphore = semaphore;
     }
 
     public void start() {
@@ -129,6 +136,20 @@ public class TDRemoteRequest implements Runnable {
 
         Object fullBody = null;
         Throwable error = null;
+        if(semaphore != null)
+        {
+            try
+            {
+                semaphore.acquire();
+            }
+            catch (InterruptedException e)
+            {
+                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+            }
+            finally {
+                semaphore.release();
+            }
+        }
         try {
             HttpResponse response = httpClient.execute(request);
             StatusLine status = response.getStatusLine();
