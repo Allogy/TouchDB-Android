@@ -31,7 +31,7 @@ import com.couchbase.touchdb.support.TDRemoteRequestCompletionBlock;
 
 public class TDPuller extends TDReplicator implements TDChangeTrackerClient {
 
-    private static final int MAX_OPEN_HTTP_CONNECTIONS = 4;
+    private static final int MAX_OPEN_HTTP_CONNECTIONS = 12;
 
     protected TDBatcher<List<Object>> downloadsToInsert;
     protected List<TDRevision> revsToPull;
