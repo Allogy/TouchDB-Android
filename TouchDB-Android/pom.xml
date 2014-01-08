@@ -2,14 +2,14 @@
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>TouchDB-Android</artifactId>
-    <version>0.1.5</version>
+    <version>0.1.6-SNAPSHOT</version>
     <packaging>apklib</packaging>
     <name>TouchDB for Android</name>
 
     <parent>
         <groupId>com.allogy.couchbase.android</groupId>
         <artifactId>TouchDB-Android-Parent</artifactId>
-        <version>0.1.5</version>
+        <version>0.1.6-SNAPSHOT</version>
     </parent>
 
     <dependencies>
