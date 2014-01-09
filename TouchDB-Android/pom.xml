@@ -32,7 +32,7 @@
         <dependency>
             <groupId>com.allogy.couch</groupId>
             <artifactId>couch-multipart</artifactId>
-            <version>1.0</version>
+            <version>1.2-SNAPSHOT</version>
         </dependency>
     </dependencies>
 
